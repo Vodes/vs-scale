@@ -61,7 +61,6 @@ Check out the `how to contribute <contribute>` section!
     submodules/mask
     submodules/scale
     submodules/shaders
-    submodules/types
 
 
 Special Credits

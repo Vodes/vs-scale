@@ -7,9 +7,7 @@ from typing import Any, Callable, Protocol
 
 from vsaa import Nnedi3
 from vskernels import Catrom, Kernel, KernelT, Scaler, ScalerT
-from vstools import F_VD, KwargsT, MatrixT, fallback, get_w, mod2, plane, vs
-
-from .types import Resolution
+from vstools import F_VD, KwargsT, MatrixT, fallback, get_w, mod2, plane, vs, Resolution
 
 __all__ = [
     'GenericScaler',
