@@ -2,20 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import partial
-from math import ceil, floor
 from typing import Any, Callable, Protocol
 
 from vsaa import Nnedi3
 from vskernels import Catrom, Kernel, KernelT, Scaler, ScalerT
-from vstools import F_VD, KwargsT, MatrixT, fallback, get_w, mod2, plane, vs, Resolution
+from vstools import F_VD, MatrixT, get_w, plane, vs, Resolution
 
 __all__ = [
     'GenericScaler',
-    'scale_var_clip',
-    'fdescale_args',
-    'descale_args',
-
-    'ScalingArgs'
+    'scale_var_clip'
 ]
 
 
@@ -205,141 +200,3 @@ def scale_var_clip(
         out_clip = clip.std.BlankClip(width, height)
 
     return out_clip.std.FrameEval(_eval_scale, clip, clip)
-
-
-@dataclass
-class ScalingArgs:
-    width: int
-    height: int
-    src_width: float
-    src_height: float
-    src_top: float
-    src_left: float
-    mode: str = 'hw'
-
-    base_clip: vs.VideoNode | None = None
-
-    def _do(self) -> tuple[bool, bool]:
-        return 'h' in self.mode.lower(), 'w' in self.mode.lower()
-
-    def _up_rate(self, clip: vs.VideoNode | None = None) -> tuple[float, float]:
-        if clip is None:
-            return 1.0, 1.0
-
-        assert self.base_clip
-
-        do_h, do_w = self._do()
-
-        return (
-            (clip.height / self.height) if do_h else 1.0,
-            (clip.width / self.width) if do_w else 1.0
-        )
-
-    def kwargs(self, clip_or_rate: vs.VideoNode | float | None = None, /) -> KwargsT:
-        kwargs = KwargsT()
-        do_h, do_w = self._do()
-        up_rate_h, up_rate_w = (
-            self._up_rate(clip_or_rate)
-            if clip_or_rate is None or isinstance(clip_or_rate, vs.VideoNode) else
-            (clip_or_rate, clip_or_rate)
-        )
-
-        if do_h:
-            kwargs.update(
-                src_height=self.src_height * up_rate_h,
-                src_top=self.src_top * up_rate_h
-            )
-
-        if do_w:
-            kwargs.update(
-                src_width=self.src_width * up_rate_w,
-                src_left=self.src_left * up_rate_w
-            )
-
-        return kwargs
-
-    def descale(self, kernel: type[Kernel], clip: vs.VideoNode | None = None) -> vs.VideoNode:
-        if not clip:
-            clip = self.base_clip
-
-        do_h, do_w = self._do()
-
-        return kernel.descale(
-            clip,
-            self.width if do_w else clip.width,
-            self.height if do_h else clip.height,
-            **self.kwargs()
-        )
-
-
-def descale_args(
-    clip: vs.VideoNode,
-    src_height: float, src_width: float | None = None,
-    base_height: int | None = None, base_width: int | None = None,
-    crop_top: int = 0, crop_bottom: int = 0,
-    crop_left: int = 0, crop_right: int = 0,
-    mode: str = 'hw'
-) -> ScalingArgs:
-    base_height = fallback(base_height, mod2(ceil(src_height)))
-    base_width = fallback(base_width, get_w(base_height, clip, 2))
-
-    ratio = src_height / (clip.height + crop_top + crop_bottom)
-    src_width = fallback(src_width, ratio * (clip.width + crop_left + crop_right))
-
-    margin_left = (base_width - src_width) / 2 + ratio * crop_left
-    margin_right = (base_width - src_width) / 2 + ratio * crop_right
-    cropped_width = base_width - floor(margin_left) - floor(margin_right)
-
-    margin_top = (base_height - src_height) / 2 + ratio * crop_top
-    margin_bottom = (base_height - src_height) / 2 + ratio * crop_bottom
-    cropped_height = base_height - floor(margin_top) - floor(margin_bottom)
-
-    cropped_src_width = ratio * clip.width
-    cropped_src_left = margin_left - floor(margin_left)
-
-    cropped_src_height = ratio * clip.height
-    cropped_src_top = margin_top - floor(margin_top)
-
-    return ScalingArgs(
-        cropped_width, cropped_height,
-        cropped_src_width, cropped_src_height,
-        cropped_src_top, cropped_src_left,
-        mode, clip
-    )
-
-
-def fdescale_args(
-    clip: vs.VideoNode, src_height: float,
-    base_height: int | None = None, base_width: int | None = None,
-    src_top: float | None = None, src_left: float | None = None,
-    src_width: float | None = None, mode: str = 'hw', up_rate: float = 2.0
-) -> tuple[KwargsT, KwargsT]:
-    base_height = fallback(base_height, mod2(ceil(src_height)))
-    base_width = fallback(base_width, get_w(base_height, clip, 2))
-
-    src_width = fallback(src_width, src_height * clip.width / clip.height)
-
-    cropped_width = base_width - 2 * floor((base_width - src_width) / 2)
-    cropped_height = base_height - 2 * floor((base_height - src_height) / 2)
-
-    do_h, do_w = 'h' in mode.lower(), 'w' in mode.lower()
-
-    de_args = dict(
-        width=cropped_width if do_w else clip.width,
-        height=cropped_height if do_h else clip.height
-    )
-
-    up_args = dict()
-
-    src_top = fallback(src_top, (cropped_height - src_height) / 2)
-    src_left = fallback(src_left, (cropped_width - src_width) / 2)
-
-    if do_h:
-        de_args.update(src_height=src_height, src_top=src_top)
-        up_args.update(src_height=src_height * up_rate, src_top=src_top * up_rate)
-
-    if do_w:
-        de_args.update(src_width=src_width, src_left=src_left)
-        up_args.update(src_width=src_width * up_rate, src_left=src_left * up_rate)
-
-    return de_args, up_args
